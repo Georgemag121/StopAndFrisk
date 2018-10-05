@@ -2,3 +2,5 @@
 .Rhistory
 data/
 Data/
+.RData
+.csv
