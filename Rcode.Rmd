@@ -28,15 +28,29 @@ knitr::opts_chunk$set(echo=TRUE,tidy=TRUE)
 ## 2013 NYC Stop & Frisk data (a few rows/cols)
 ```{r init-1,size="tiny",warning=FALSE,message=FALSE}
 #load stops...
-load("data/sqf.RData")
-stops2013 <- subset(stops,year==2013)
-stops2013[1:3,c("date","precinct","suspected.crime","suspect.race","found.weapon")]
+load("data/stops2013clean.RData")
 ```
 
 ```{r}
-
-
+head(stops2013clean)
 ```
+
+
+## Getting the zip code assiciated with each (lat,long) coordinate
+
+```{r}
+stops2013short = stops2013clean[,c("year","date","time", "frisked","lat","lon")] 
+head(stops2013short)
+```
+
+Reverse geocoding 
+
+
+```{r}
+install.packages("revgeo")
+```
+
+
 
 
 3. Of course, lat & lon (location) are given.  We make a graphical display:
@@ -51,7 +65,5 @@ plot(nyc)
 with(stops2013clean,points(lon,lat,pch='.',col=stops2013clean$suspect.race))
 dev.off()
 ```
-
-#wwwww
 
 
