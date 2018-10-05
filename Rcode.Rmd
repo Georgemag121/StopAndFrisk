@@ -51,10 +51,8 @@ Reverse geocoding
 library(revgeo)
 
 #figuring out how this works==== revgeo function takes LON-LAT as two numeric arguments.
-# create vector cause 
+# create vector cause easier
 a = c(stops2013short$lon[1], stops2013short$lat[1])
-# needs to be numeric
-a = as.numeric(a)
 
 #reverse geo the address
 x = as.numeric(revgeo(a[1], a[2], output = "hash", item = "zip"))
