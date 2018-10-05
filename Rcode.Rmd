@@ -27,17 +27,13 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
 
 # Importing and Cleaning data
 ## Importing data
-1. NYC Stop & Frisk data
-2. Housing value panel data
+(1). NYC Stop & Frisk data
+(2). Housing value panel data
 ```{r init-1,size="tiny",warning=FALSE,message=FALSE}
 # Housing value
-
 hvraw <- read.csv("data/Trimmed_home_value.csv", header = T)
 
-hv <- hvraw %>% filter(City == "New York") %>% arrange(RegionName)
-
-
-#load stops...
+# Stop & Frisk
 load("data/sqf.RData")
 #stops2013 <- subset(stops,year==2013)
 #stops2013[1:3,c("date","precinct","suspected.crime","suspect.race","found.weapon")]
@@ -45,11 +41,20 @@ load("data/sqf.RData")
 ```
 
 ## Cleaning data
+### Housing Value
+```{r}
+# select relevant date range for housing value, filter out other cities
+hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2005.12:X2014.01) %>% arrange(RegionName)
+```
+
 ### Stop & Frisk
 ```{r}
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
-sfdf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(c("date", "time", "precinct", "suspected.crime", "frisked", "suspect.race", "found.weapon", "lat", "lon")) %>% arrange(date, time)
+sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
 ```
+
+
+
 
 
 3. Of course, lat & lon (location) are given.  We make a graphical display:
