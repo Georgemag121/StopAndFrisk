@@ -10,4 +10,17 @@ Hypothesis: Higher real estate values related to a lower frequency of stops/lowe
 
 We also want to explore one of the following ideas:  
 
-**compare the different distribution of house prices/ stops throughout the years that we have data. investigate how stops frequency and distribution varied i neighbourhoods that underwent gentrification or large (relative) change in real estate value during these years**  
+**Compare the different distribution of house prices/ stops throughout the years that we have data. investigate how stops frequency and distribution varied i neighbourhoods that underwent gentrification or large (relative) change in real estate value during these years.**  
+
+1. Download ZHVI data and clean dataset:  
+
+  - Standardize variables by year (e.g. z-score)
+  - Merge with the Stop and Frisk dataset using long-lat and zip codes
+  
+2. Literature review and dataset exploration:  
+
+  - Understand how stop & frisk changed throughout the years
+  - Understand what neighbourhoods of nyc have changed the most during specified time-frame
+  
+
+
