@@ -47,23 +47,17 @@ Reverse geocoding
 
 
 ```{r}
-install.packages("revgeo")
+#install.pakcages("revgeo")
+library(revgeo)
+
+#figuring out how this works==== revgeo function takes LON-LAT as two numeric arguments.
+# create vector cause 
+a = c(stops2013short$lon[1], stops2013short$lat[1])
+# needs to be numeric
+a = as.numeric(a)
+
+#reverse geo the address
+x = as.numeric(revgeo(a[1], a[2], output = "hash", item = "zip"))
+x
+
 ```
-
-
-
-
-3. Of course, lat & lon (location) are given.  We make a graphical display:
-
-```{r race-1, size="tiny",warning=FALSE,message=FALSE} 
-#load NYC map
-nyc <- readOGR("~/Desktop/A3SR/APSTA-GE-2015/Data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp" )
-stops2013clean <- stops2013[stops2013$lat>40.2 & !is.na(stops2013$lat),]
-save(stops2013clean,file="Stop_Frisk/stops2013clean.RData")
-png("sf_map.jpeg",width=1.25*480,height=480,bg="transparent")
-plot(nyc)
-with(stops2013clean,points(lon,lat,pch='.',col=stops2013clean$suspect.race))
-dev.off()
-```
-
-
