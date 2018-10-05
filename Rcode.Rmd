@@ -16,6 +16,7 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     library(formatR)
     library(sm)
     library(dplyr)
+    library(revgeo)
     
     #snippet to override r-chunk fonts.
     def.chunk.hook  <- knitr::knit_hooks$get("chunk")
@@ -50,7 +51,7 @@ hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2
 ### Stop & Frisk
 ```{r}
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
-sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
+sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
 ```
 
 
