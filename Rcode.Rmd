@@ -55,12 +55,23 @@ sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01"
 ```
 
 
+```{r}
+# zip code shape file
+zipraw <- readOGR("~/Desktop/A3SR/APSTA-GE-2015/Data/zip_code/ZIP_CODE_040114.shp")
+nyc <- readOGR("~/Desktop/A3SR/APSTA-GE-2015/Data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp")
 
+# change projection method to lon/lat
+zipbd <-  spTransform(zipbd, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+
+# test
+plot(zipbd)
+points(sf$lon[1:1000], sf$lat[1:1000], pch = ".", cex = 2, col = sf[1:10000, ]$suspect.race)
+```
 
 
 3. Of course, lat & lon (location) are given.  We make a graphical display:
 
-```{r race-1, size="tiny",warning=FALSE,message=FALSE} 
+```{r race-1, size = "tiny", warning = FALSE, message = FALSE} 
 #load NYC map
 nyc <- readOGR("~/Desktop/A3SR/APSTA-GE-2015/Data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp" )
 stops2013clean <- stops2013[stops2013$lat>40.2 & !is.na(stops2013$lat),]
