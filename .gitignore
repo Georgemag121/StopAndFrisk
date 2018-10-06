@@ -3,3 +3,9 @@ data/
 Data/
 .RData
 .csv
+.dbf
+.shp
+.prj
+.sbn
+.sbx
+.shx
