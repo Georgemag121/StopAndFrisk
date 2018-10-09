@@ -82,12 +82,18 @@ points(sf$lon[1:10000], sf$lat[1:10000], pch = ".", cex = 2, col = sf[1:10000, ]
 
 # experimenting with reversing geo code
 # update: IT WORKS! 500,000/14s -> takes around 110s to run the whole thing
-Sys.time()
-coord1 <- cbind(sf$lon[1:500000], sf$lat[1:500000])
+#Sys.time()
+#coord1 <- cbind(sf$lon[1:500000], sf$lat[1:500000])
+#points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+#y <- over(points, zipbd)
+#summary(y)
+#Sys.time()
+#
+
+coord1 <- cbind(sf$lon, sf$lat)
 points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-y <- over(points, zipbd)
-summary(y)
-Sys.time()
+reversezip <- over(points, zipbd)
+
 
 ```
 
