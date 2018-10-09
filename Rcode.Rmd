@@ -54,22 +54,7 @@ hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
 sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
 
-# Convert lon/lat into zip code, 300/min -> 18,000/hr -> 432,000/day, 9.15 day LOL
-Sys.time()
-x <- rep(0, 20)
-for (i in 1:20) {
-  x[i] <- as.numeric(revgeo(sf$lon[i], sf$lat[i], output = "hash", item = "zip"))
-}
-Sys.time()
 
-# experimenting with reversing geo code
-# update: IT WORKS! 500,000/14s -> takes around 110s to run the whole thing
-Sys.time()
-coord1 <- cbind(sf$lon[1:500000], sf$lat[1:500000])
-points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-y <- over(points, zipbd)
-summary(y)
-Sys.time()
 ```
 
 
@@ -79,10 +64,32 @@ zipraw <- readOGR("data/zip_code/ZIP_CODE_040114.shp")
 nyc <- readOGR("data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp")
 
 # change projection method to lon/lat
-zipbd <-  spTransform(zipbd, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+zipbd <-  spTransform(zipraw, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 
 # test
 plot(zipbd)
 points(sf$lon[1:10000], sf$lat[1:10000], pch = ".", cex = 2, col = sf[1:10000, ]$suspect.race)
 ```
+
+```{r}
+# Convert lon/lat into zip code, 300/min -> 18,000/hr -> 432,000/day, 9.15 day LOL
+#Sys.time()
+#x <- rep(0, 20)
+#for (i in 1:20) {
+#  x[i] <- as.numeric(revgeo(sf$lon[i], sf$lat[i], output = "hash", item = "zip"))
+#}
+#Sys.time()
+
+# experimenting with reversing geo code
+# update: IT WORKS! 500,000/14s -> takes around 110s to run the whole thing
+Sys.time()
+coord1 <- cbind(sf$lon[1:500000], sf$lat[1:500000])
+points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+y <- over(points, zipbd)
+summary(y)
+Sys.time()
+
+```
+
+
 
