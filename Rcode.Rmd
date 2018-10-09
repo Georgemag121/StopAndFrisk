@@ -97,5 +97,8 @@ reversezip <- over(points, zipbd)
 
 ```
 
-
+```{r}
+plot(zipbd, col = "green")
+points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 4, col = "red")
+```
 
