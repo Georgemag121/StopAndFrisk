@@ -52,8 +52,7 @@ hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2
 ### Stop & Frisk
 ```{r}
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
-sf <- stops %>% filter(lat > 40.2 & !is.na(lat)) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
-
+sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
 
 ```
 
@@ -102,3 +101,36 @@ plot(zipbd, col = "green")
 points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 4, col = "red")
 ```
 
+## finding zipcode matches for NAs
+```{r}
+# for stops happening on the boundary of zipcodes, probe the surrounding areas (8 points) and take the majority vote to be its zip code, the distance from the original point is close to 140 ft.
+zipcorrect <- function(lon, lat, shp) {
+  revzip <- rep(NA, length(lon))
+  for (i in 1:length(lon)) {
+    # starting from north, rotating clockwise for the 8 sample points
+    samp.lon <- c(lon[i], lon[i] + 0.001, lon[i] + 0.0014, lon[i] + 0.001, lon[i], lon[i] - 0.001, lon[i] - 0.0014, lon[i] - 0.001)
+    samp.lat <- c(lat[i] + 0.0014, lat[i] + 0.001, lat[i], lat[i] - 0.001, lat[i] - 0.0014, lat[i] - 0.001, lat[i], lat[i] + 0.001)
+    
+    samp.coord <- cbind(samp.lon, samp.lat)
+    
+    samp.points <- SpatialPoints(samp.coord, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+    
+    samp.zip <- as.character(over(samp.points, shp)$ZIPCODE)
+    shortzip <- samp.zip[which(!is.na(samp.zip))]
+    
+    revzip[i] <- shortzip[which.max(tabulate(match(shortzip, unique(shortzip))))]
+  }
+  return(revzip)
+}
+#abc <- cbind(sf[154,10] + 0.0001, sf[154, 9] - 0.0001)
+#def <- SpatialPoints(abc, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+#a <- over(def, zipbd)
+```
+
+# Finding zipcode matches for NAs
+```{r}
+zipmiss <- sf[which(is.na(reversezip$ZIPCODE)), c(10, 9)]
+Sys.time()
+zipcorrect(zipmiss$lon[1:50], zipmiss$lat[1:50], zipbd)
+Sys.time()
+```
