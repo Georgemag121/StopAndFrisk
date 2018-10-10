@@ -50,6 +50,11 @@ hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2
 ```
 
 ### Stop & Frisk
+
+https://www.mapdevelopers.com/geocode_bounding_box.php
+For geographical boundaries of NYC.
+North Latitude: 40.917577 South Latitude: 40.477399 East Longitude: -73.700272 West Longitude: -74.259090
+
 ```{r}
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
 sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
@@ -131,6 +136,11 @@ zipcorrect <- function(lon, lat, shp) {
 ```{r}
 zipmiss <- sf[which(is.na(reversezip$ZIPCODE)), c(10, 9)]
 Sys.time()
-zipcorrect(zipmiss$lon[1:50], zipmiss$lat[1:50], zipbd)
+imputedzip <- zipcorrect(zipmiss$lon, zipmiss$lat, zipbd)
 Sys.time()
+# 2m32s
+
 ```
+
+
+
