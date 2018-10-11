@@ -61,8 +61,8 @@ sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "
 
 ```
 
-
-```{r}
+### shapefiles for zip code bounds and NYC
+```{r, echo = F}
 # zip code shape file
 zipraw <- readOGR("data/zip_code/ZIP_CODE_040114.shp")
 nyc <- readOGR("data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp")
@@ -75,6 +75,7 @@ plot(zipbd)
 points(sf$lon[1:10000], sf$lat[1:10000], pch = ".", cex = 2, col = sf[1:10000, ]$suspect.race)
 ```
 
+### Add zip code field to Stop & Frisk based on coordinates
 ```{r}
 # Convert lon/lat into zip code, 300/min -> 18,000/hr -> 432,000/day, 9.15 day LOL
 #Sys.time()
@@ -97,18 +98,18 @@ points(sf$lon[1:10000], sf$lat[1:10000], pch = ".", cex = 2, col = sf[1:10000, ]
 coord1 <- cbind(sf$lon, sf$lat)
 points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 reversezip <- over(points, zipbd)
-
-
 ```
+There are 1147 missing values, to further inspect the patterns, the following plot is created
 
 ```{r}
 plot(zipbd, col = "green")
 points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 4, col = "red")
 ```
+It appears that all the missing values lie right on the boundaries. To fix this, we will find 8 surrounding points (all of whom of equal distance to the original point), from north going clockwise. We will then get the zipcode for all those 8 points and exclude NAs before taking a majority vote. Finally, we use the majority vote result to impute the NAs.
 
-## finding zipcode matches for NAs
+### function for matching boundary points
 ```{r}
-# for stops happening on the boundary of zipcodes, probe the surrounding areas (8 points) and take the majority vote to be its zip code, the distance from the original point is close to 140 ft.
+# The distance from the original point is about 370 ft.
 zipcorrect <- function(lon, lat, shp) {
   revzip <- rep(NA, length(lon))
   for (i in 1:length(lon)) {
@@ -127,20 +128,22 @@ zipcorrect <- function(lon, lat, shp) {
   }
   return(revzip)
 }
-#abc <- cbind(sf[154,10] + 0.0001, sf[154, 9] - 0.0001)
-#def <- SpatialPoints(abc, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
-#a <- over(def, zipbd)
 ```
 
-# Finding zipcode matches for NAs
+### Matching boundary points to zipcode
 ```{r}
 zipmiss <- sf[which(is.na(reversezip$ZIPCODE)), c(10, 9)]
 Sys.time()
 imputedzip <- zipcorrect(zipmiss$lon, zipmiss$lat, zipbd)
 Sys.time()
-# 2m32s
-
+# 2m32s, 1m58s
 ```
 
+### Append zipcode to Stop & Frisk
+```{r}
+sf$zip <- as.character(reversezip$ZIPCODE)
+sf$zip[which(is.na(sf$zip))] <- imputedzip
+sum(is.na(sf$zip))
+```
 
 
