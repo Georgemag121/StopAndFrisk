@@ -163,7 +163,39 @@ points(sf$lon[which(sf$zip == "10003")], sf$lat[which(sf$zip == "10003")], pch =
 ##C. group stop and frisk data based zipcode
 ```{r}
 str(zipbd@data)
+
 ```
 
 #### NEED TO ADD ALL THE ATTRIBUTES FROM ZIPCODE TO THE DATA
+```{r}
+jointable <- zipbd@data %>% select(zip = ZIPCODE, po_name = PO_NAME, pop = POPULATION, area = AREA, county = COUNTY) %>% arrange(zip, desc(area))
+
+zipbd@data[246:247, ]
+
+plot(subset(zipbd, ZIPCODE == "10004"))
+
+zipbd@data[c(107, 110, 114, 115), ]
+```
+Within the jointable, there is one duplicate record of zipcode 10047. There are other regions with multiple polygons associated with one zip code (10004 for instance). For these cases, we aggregate the land area and take any one of the population entry. It is cleaned in the following chunk.
+
+```{r}
+jtclean <- jointable[!duplicated(jointable), ]
+jtclean <- jtclean %>% group_by(zip) %>% summarize(po_name = first(po_name), pop = first(pop), area = sum(area), county = first(county))
+
+jtclean$zip <- as.character(jtclean$zip)
+jtclean$county <- as.character(jtclean$county)
+
+jtclean$county[which(jtclean$county == "New York")] <- "Manhattan"
+jtclean$county[which(jtclean$county == "Richmond")] <- "Staten Island"
+jtclean$county[which(jtclean$county == "Kings")] <- "Brooklyn"
+colnames(jtclean)[5] <- "borough"
+```
+
+
+```{r}
+sf_large <- left_join(sf, jtclean)
+```
+
+
+
 
