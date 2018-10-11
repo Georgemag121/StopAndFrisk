@@ -28,10 +28,10 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     })
     ```
 
-# Importing and Cleaning data
-## Importing data
-(1). NYC Stop & Frisk data
-(2). Housing value panel data
+#1. Importing and Cleaning data
+##A. Importing data
+(i). NYC Stop & Frisk data
+(ii). Housing value panel data
 ```{r init-1,size="tiny",warning=FALSE,message=FALSE}
 # Housing value
 hvraw <- read.csv("data/Trimmed_home_value.csv", header = T)
@@ -42,14 +42,14 @@ load("data/sqf.RData")
 #stops2013[1:3,c("date","precinct","suspected.crime","suspect.race","found.weapon")]
 ```
 
-## Cleaning data
-### Housing Value
+##B. Cleaning data
+###(1). Housing Value
 ```{r}
 # select relevant date range for housing value, filter out other cities
 hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2005.12:X2014.01) %>% arrange(RegionName)
 ```
 
-### Stop & Frisk
+###(2). Stop & Frisk
 
 https://www.mapdevelopers.com/geocode_bounding_box.php
 For geographical boundaries of NYC.
@@ -61,7 +61,7 @@ sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "
 
 ```
 
-### shapefiles for zip code bounds and NYC
+###(3). shapefiles for zip code bounds and NYC
 ```{r, echo = F}
 # zip code shape file
 zipraw <- readOGR("data/zip_code/ZIP_CODE_040114.shp")
@@ -71,11 +71,11 @@ nyc <- readOGR("data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10
 zipbd <-  spTransform(zipraw, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 
 # test
-plot(zipbd)
+plot(zipbd, lwd = 0.4)
 points(sf$lon[1:10000], sf$lat[1:10000], pch = ".", cex = 2, col = sf[1:10000, ]$suspect.race)
 ```
 
-### Add zip code field to Stop & Frisk based on coordinates
+###(4). Add zip code field to Stop & Frisk based on coordinates
 ```{r}
 # Convert lon/lat into zip code, 300/min -> 18,000/hr -> 432,000/day, 9.15 day LOL
 #Sys.time()
@@ -102,12 +102,12 @@ reversezip <- over(points, zipbd)
 There are 1147 missing values, to further inspect the patterns, the following plot is created
 
 ```{r}
-plot(zipbd, col = "green")
-points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 4, col = "red")
+plot(zipbd, border = "green", lwd = 0.2)
+points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 2.5, col = "red")
 ```
 It appears that all the missing values lie right on the boundaries. To fix this, we will find 8 surrounding points (all of whom of equal distance to the original point), from north going clockwise. We will then get the zipcode for all those 8 points and exclude NAs before taking a majority vote. Finally, we use the majority vote result to impute the NAs.
 
-### function for matching boundary points
+**function for matching boundary points**
 ```{r}
 # The distance from the original point is about 370 ft.
 zipcorrect <- function(lon, lat, shp) {
@@ -130,7 +130,7 @@ zipcorrect <- function(lon, lat, shp) {
 }
 ```
 
-### Matching boundary points to zipcode
+**Matching boundary points to zipcode**
 ```{r}
 zipmiss <- sf[which(is.na(reversezip$ZIPCODE)), c(10, 9)]
 Sys.time()
@@ -139,11 +139,31 @@ Sys.time()
 # 2m32s, 1m58s
 ```
 
-### Append zipcode to Stop & Frisk
+**Append zipcode and zipcode related fields to Stop & Frisk**
 ```{r}
 sf$zip <- as.character(reversezip$ZIPCODE)
 sf$zip[which(is.na(sf$zip))] <- imputedzip
 sum(is.na(sf$zip))
 ```
 
+```{r}
+plot(zipbd, border = "red", lwd = 0.2)
+points(sf$lon[which(sf$zip == "11232")], sf$lat[which(sf$zip == "11232")], pch = ".", cex = 1, col = sf$year)
+
+plot(zipbd, border = "white", lwd = 0.5, col = zipbd@data$CTY_FIPS)
+plot(zipbd, border = "white", lwd = 0.2, col = cm.colors(50, alpha = 0.9)[cut(zipbd@data$POPULATION, 50)])
+
+plot(subset(zipbd, ZIPCODE == "10003"))
+points(sf$lon[which(sf$zip == "10003")], sf$lat[which(sf$zip == "10003")], pch = ".", cex = 2, col = sf$year[which(sf$zip == "10003")])
+
+plot(subset(zipbd, COUNTY == "New York"))
+points(sf$lon[which(sf$zip == "10003")], sf$lat[which(sf$zip == "10003")], pch = ".", cex = 2, col = sf$year[which(sf$zip == "10003")])
+```
+
+##C. group stop and frisk data based zipcode
+```{r}
+str(zipbd@data)
+```
+
+#### NEED TO ADD ALL THE ATTRIBUTES FROM ZIPCODE TO THE DATA
 
