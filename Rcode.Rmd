@@ -7,7 +7,6 @@ output: pdf_document
 
     ```{r setup, include = FALSE, warning = FALSE, message = FALSE}
 knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
-    library(ggplot2)
     library(lattice)
     library(spdep)
     library(RColorBrewer)
@@ -16,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     library(formatR)
     library(sm)
     library(tidyverse)
-    library(revgeo)
+    #library(revgeo)
     library(ggmap)
     library(sp)
     
@@ -57,7 +56,7 @@ North Latitude: 40.917577 South Latitude: 40.477399 East Longitude: -73.700272 W
 
 ```{r}
 # filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
-sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time)
+sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time) %>% mutate(month = substr(date, 6, 7))
 
 ```
 
@@ -180,7 +179,7 @@ Within the jointable, there is one duplicate record of zipcode 10047. There are 
 
 ```{r}
 jtclean <- jointable[!duplicated(jointable), ]
-jtclean <- jtclean %>% group_by(zip) %>% summarize(po_name = first(po_name), pop = first(pop), area = sum(area), county = first(county))
+jtclean <- jtclean %>% group_by(zip) %>% summarize(po_name = first(po_name), pop = first(pop), area = sum(area), county = first(county)) %>% as.data.frame()
 
 jtclean$zip <- as.character(jtclean$zip)
 jtclean$county <- as.character(jtclean$county)
@@ -194,8 +193,47 @@ colnames(jtclean)[5] <- "borough"
 
 ```{r}
 sf_large <- left_join(sf, jtclean)
+
+zip_large <- right_join(sf, jtclean)
 ```
 
+## Group data on zipcode
+```{r}
+
+sf_rate <- sf_large %>% group_by(zip, year, month) %>% summarise(frisked = sum(frisked), stops = n(), po_name = first(po_name), pop = first(pop), area = first(area), borough = first(borough)) %>% as.data.frame()
+
+plot(zipbd, border = "white", lwd = 0.2, col = heat.colors(10, alpha = 1)[cut(sf_rate$frisked/sf_rate$stops, 10)])
+```
+
+## inspect difference between zipbd, housing value, and stop and frisk
+After subsetting zipbd with BLDGZIP == 0 (building zip), it matches perfectly with S&F
+```{r}
+ziphv <- as.character(unique(hv$RegionName))
+zipsf <- unique(sf_rate$zip)
+zipbound <- as.character(unique(nbzipbd@data$ZIPCODE))
+zipdiff1 <- setdiff(zipbound, zipsf)
+zipdiff2 <- setdiff(zipbound, ziphv)
+
+#plot(zipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff1, "red", "blue"))
+
+plot(zipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff2, "red", "blue"))
+
+#zipbd@data[which(as.character(zipbd@data$ZIPCODE) %in% zipdiff1), ]
 
 
+plot(zipbd, border = "white", lwd = 0.2, col = "red")
+text(coordinates(zipbd), labels = zipbd@data$ZIPCODE, cex = 0.6)
+
+
+nbzipbd <- subset(zipbd, BLDGZIP == 0)
+```
+
+## Now narrowing in on housing value and zip code
+49 missing, could potentially get some with APT&CONDO from zillow.
+```{r}
+hvdiffshp <- subset(zipbd, zipbd$ZIPCODE %in% zipdiff2)
+plot(nbzipbd, lwd ="0.2")
+plot(hvdiffshp, border = "white", lwd = 0.2, col = "red", add = T)
+text(coordinates(hvdiffshp), labels = hvdiffshp@data$ZIPCODE, cex = 0.6)
+```
 
