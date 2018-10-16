@@ -304,7 +304,6 @@ sfhvc
 ##
 
 
-unique(sfhvc[is.na(sfhvc$zhvi),]$zip) %in% unique(sfhvc[is.na(sfhvc$zhvic),]$zip)
 
 
 plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff3, "red", "blue"), main = "ZIP codes with missing ZHVI value")
@@ -313,24 +312,17 @@ plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$
 plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
 
 
-which(!(unique(sfhvc[is.na(sfhvc$zhvi),]$zip) %in% zipdiff3))
-unique(sfhvc[is.na(sfhvc$zhvi),]$zip)[6]
-
-
-
 
 #sf_rate[sf_rate$zip == "10032" ,]
 ## only one month available for this zip code
 #hvlong[hvlong$zip == 10032,]
 
+#add the values of Apptt$Condo that have value for the zhvi NAs
 sfhvc[is.na(sfhvc$zhvi),]$zhvi = sfhvc[is.na(sfhvc$zhvi),]$zhvic
 
-plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
-
+#remove bronx and central park
 sfhvc_sub = sfhvc %>% filter(borough != "Bronx", po_name != "Central Park")
-unique(sfhvc_sub$borough)
-unique(sfhvc_sub[is.na(sfhvc_sub$zhvi),]$zip)
-length(unique(sfhvc_sub$zip))
+
 
 plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
 
@@ -340,17 +332,13 @@ plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$
 ## Kringing
 
 ```{r}
-sfhvc_sub[is.na(zhvi)]
-
+#grouping by year
 sfhvc_year = sfhvc_sub %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough), zhvi = mean(zhvi)) %>% as.data.frame() %>% filter(pop > 0)
 
 
 #missing......
-table(sfhvc_year$zip,sfhvc_year$year)
+table(sfhvc_year$year)
 length(unique(sfhvc_year$zip))
-
-
-sfhvc_year[sfhvc_year$zip == 10044,]
 
 ## don't think this plot is doing what i want it to...
 par(mfrow = c(2,4))
@@ -362,10 +350,24 @@ for(i in 1:8){
 ```
 
 
+## Kringing
+
+total missing values
+
+```{r}
+missings = sfhvc_year[is.na(sfhvc_year$zhvi),]
+dim(missings) # 166 missing values
+unique(missings$zip)
+
+```
+
+---> COMPUTE VARIOGRAM> to do so, we need to have weight matrix. To do so, we need to have the same number of polygons as of zip codes, each polygon associated with it. 
 
 
 
-# DOing some testi
+
+
+# Doing some testing
 
 
 ```{r}
