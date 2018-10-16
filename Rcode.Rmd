@@ -18,6 +18,8 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     #library(revgeo)
     library(ggmap)
     library(sp)
+    library(reshape2)
+    library(lubridate)
     
     #snippet to override r-chunk fonts.
     def.chunk.hook  <- knitr::knit_hooks$get("chunk")
@@ -46,6 +48,7 @@ load("data/sqf.RData")
 ```{r}
 # select relevant date range for housing value, filter out other cities
 hv <- hvraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2005.12:X2014.01) %>% arrange(RegionName)
+
 ```
 
 ###(2). Stop & Frisk
@@ -207,33 +210,143 @@ plot(zipbd, border = "white", lwd = 0.2, col = heat.colors(10, alpha = 1)[cut(sf
 
 ## inspect difference between zipbd, housing value, and stop and frisk
 After subsetting zipbd with BLDGZIP == 0 (building zip), it matches perfectly with S&F
+
+However, we are still missing some values for housing price. 
+
+
 ```{r}
+nbzipbd <- subset(zipbd, BLDGZIP == 0)
+
 ziphv <- as.character(unique(hv$RegionName))
 zipsf <- unique(sf_rate$zip)
 zipbound <- as.character(unique(nbzipbd@data$ZIPCODE))
 zipdiff1 <- setdiff(zipbound, zipsf)
 zipdiff2 <- setdiff(zipbound, ziphv)
+zipdiff3 <- setdiff(zipsf, ziphv)
 
 #plot(zipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff1, "red", "blue"))
 
-plot(zipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff2, "red", "blue"))
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff3, "red", "blue"), main = "ZIP codes with missing ZHVI value")
 
 #zipbd@data[which(as.character(zipbd@data$ZIPCODE) %in% zipdiff1), ]
 
 
-plot(zipbd, border = "white", lwd = 0.2, col = "red")
-text(coordinates(zipbd), labels = zipbd@data$ZIPCODE, cex = 0.6)
+plot(nbzipbd, border = "white", lwd = 0.2, col = "red")
+text(coordinates(nbzipbd), labels = zipbd@data$ZIPCODE, cex = 0.6)
+```
 
 
-nbzipbd <- subset(zipbd, BLDGZIP == 0)
+Now we need to put the ZHVI data in a long format. For each zip, month, year, we want to have a specific ZHVI so we can joint with the rates tabe. 
+
+```{r}
+hvlong = melt(hv, id.vars = c("RegionName", "CountyName"), value.name = "zhvi")
+hvlong = hvlong[, - 2]  #don't need county name, drop is as it is annoying me
+
+head(hvlong)
+hvlong = hvlong %>% mutate(variable = gsub("X","",variable)) %>% mutate(variable = gsub("\\.","-",variable)) %>% arrange(RegionName)
+hvlong = hvlong %>%  mutate(variable = as.Date(paste0(variable, "-01"))) %>% mutate(year = lubridate::year(variable), month = lubridate::month(variable)) %>% rename(zip = RegionName)
+
+hvlong = hvlong[,c(1,4,5,3)]
+hvlong$zip = as.character(hvlong$zip)
+
+sf_rate$year = as.double(sf_rate$year)
+sf_rate$month = as.double(sf_rate$month)
+
+sfhv = left_join(sf_rate, hvlong, by = c("zip","year", "month"))
+head(sfhv)
+
 ```
 
 ## Now narrowing in on housing value and zip code
+
 49 missing, could potentially get some with APT&CONDO from zillow.
+
 ```{r}
 hvdiffshp <- subset(zipbd, zipbd$ZIPCODE %in% zipdiff2)
 plot(nbzipbd, lwd ="0.2")
 plot(hvdiffshp, border = "white", lwd = 0.2, col = "red", add = T)
 text(coordinates(hvdiffshp), labels = hvdiffshp@data$ZIPCODE, cex = 0.6)
 ```
+
+## Data cleaning problems to fix:
+
+1. Missing values that can be fixed by adding the values from APP&Condo:
+
+Note: For some areas there is only one time of sale made by Zillow, blablabla explain better later -- bottom line = augment data set with zip_zhvi_condominum
+
+
+
+```{r}
+
+hvcraw <- read.csv("data/Zip_Zhvi_Condominum.csv", header = T)
+
+# select relevant date range for housing value, filter out other cities
+hvc <- hvcraw %>% filter(City == "New York") %>% select(RegionName, CountyName, X2005.12:X2014.01) %>% arrange(RegionName)
+
+
+## same cleaning as before.......
+hvclong = melt(hvc, id.vars = c("RegionName", "CountyName"), value.name = "zhvi")
+hvclong = hvclong[, - 2]  #don't need county name, drop is as it is annoying me
+
+
+hvclong = hvclong %>% mutate(variable = gsub("X","",variable)) %>% mutate(variable = gsub("\\.","-",variable)) %>% arrange(RegionName)
+hvclong = hvclong %>%  mutate(variable = as.Date(paste0(variable, "-01"))) %>% mutate(year = lubridate::year(variable), month = lubridate::month(variable)) %>% rename(zip = RegionName, zhvic = zhvi)
+
+hvclong = hvclong[,c(1,4,5,3)]
+hvclong$zip = as.character(hvclong$zip)
+
+
+
+sfhvc = left_join(sfhv, hvclong, by = c("zip","year", "month"))
+sfhvc
+## similar enoguth zhvi to zhvic that we don't care?
+
+##
+
+
+unique(sfhvc[is.na(sfhvc$zhvi),]$zip) %in% unique(sfhvc[is.na(sfhvc$zhvic),]$zip)
+
+
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% zipdiff3, "red", "blue"), main = "ZIP codes with missing ZHVI value")
+
+
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
+
+
+which(!(unique(sfhvc[is.na(sfhvc$zhvi),]$zip) %in% zipdiff3))
+unique(sfhvc[is.na(sfhvc$zhvi),]$zip)[6]
+
+
+
+
+#sf_rate[sf_rate$zip == "10032" ,]
+## only one month available for this zip code
+#hvlong[hvlong$zip == 10032,]
+
+sfhvc[is.na(sfhvc$zhvi),]$zhvi = sfhvc[is.na(sfhvc$zhvi),]$zhvic
+
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
+
+sfhvc_sub = sfhvc %>% filter(borough != "Bronx", po_name != "Central Park")
+unique(sfhvc_sub$borough)
+unique(sfhvc_sub[is.na(sfhvc_sub$zhvi),]$zip)
+length(unique(sfhvc_sub$zip))
+
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc[is.na(sfhvc$zhvi),]$zip), "red", "blue"), main = "ZIP codes with missing ZHVI value")
+
+```
+
+
+
+# DOing some testi
+
+
+```{r}
+
+sfhvc_sub
+glm1 = glm(stops ~ zhvi + offset(log(pop)), data = sfhvc_sub, family = poisson)
+summary(glm1)
+
+```
+
 
