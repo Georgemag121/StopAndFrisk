@@ -337,6 +337,33 @@ plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$
 ```
 
 
+## Kringing
+
+```{r}
+sfhvc_sub[is.na(zhvi)]
+
+sfhvc_year = sfhvc_sub %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough), zhvi = mean(zhvi)) %>% as.data.frame() %>% filter(pop > 0)
+
+
+#missing......
+table(sfhvc_year$zip,sfhvc_year$year)
+length(unique(sfhvc_year$zip))
+
+
+sfhvc_year[sfhvc_year$zip == 10044,]
+
+## don't think this plot is doing what i want it to...
+par(mfrow = c(2,4))
+for(i in 1:8){
+  years = unique(sfhvc_year$year)
+  plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhvc_year[(sfhvc_year$year == years[i]) & (is.na(sfhvc_year$zhvi)),]$zip), "red", "blue"), main = "")
+}
+
+```
+
+
+
+
 
 # DOing some testi
 
