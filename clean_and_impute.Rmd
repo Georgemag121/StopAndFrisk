@@ -1,0 +1,326 @@
+---
+title: "sp_clean_impute"
+author: "Bianca Brusco bb1569"
+date: "10/18/2018"
+output: html_document
+---
+
+    ```{r setup, include = FALSE, warning = FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
+    library(lattice)
+    library(spdep)
+    library(RColorBrewer)
+    library(classInt)
+    library(rgdal)
+    library(formatR)
+    library(sm)
+    library(tidyverse)
+    #library(revgeo)
+    library(ggmap)
+    library(sp)
+    library(reshape2)
+    library(lubridate)
+    library(MASS)
+    library(gstat) 
+    library(sp)
+    library(spdep)
+    library(dplyr)
+    
+    #snippet to override r-chunk fonts.
+    def.chunk.hook  <- knitr::knit_hooks$get("chunk")
+    knitr::knit_hooks$set(chunk = function(x, options) {
+       x <- def.chunk.hook(x, options)
+       ifelse(options$size != "normalsize", paste0("\\", options$size,"\n\n", x, "\n\n \\normalsize"), x)
+    })
+    ```
+
+#1. Importing and Cleaning data
+
+
+##A. Importing data
+
+(i). NYC Stop & Frisk data
+
+```{r}
+# Stop & Frisk
+load("data/sqf.RData")
+```
+
+
+(ii). Housing value panel data
+
+```{r init-1,size="tiny",warning=FALSE,message=FALSE}
+# Housing value
+hvraw <- read.csv("data/Trimmed_home_value.csv", header = T)
+```
+
+##B. Cleaning data
+
+###(1). Housing Value
+
+```{r}
+# select relevant date range for housing value, filter out other cities
+hv <- hvraw %>% filter(City == "New York") %>% dplyr::select(RegionName, CountyName, X2005.12:X2014.01) %>% arrange(RegionName)
+```
+
+###(2). Stop & Frisk
+
+https://www.mapdevelopers.com/geocode_bounding_box.php
+For geographical boundaries of NYC.
+North Latitude: 40.917577 South Latitude: 40.477399 East Longitude: -73.700272 West Longitude: -74.259090
+
+
+```{r}
+# filter out NAs for lon and lat, 1303 NAs and 47 "1900-12-31" for date, then select columns of interest, sorted in chronological order
+sf <- stops %>% filter(lat > 40.2 & !is.na(lat) & lat < 41) %>% filter(date >= "2006-01-01" & date <= "2013-12-31") %>% dplyr::select(year, date, time, precinct, suspected.crime, frisked, suspect.race, found.weapon, lat, lon) %>% arrange(date, time) %>% mutate(month = substr(date, 6, 7))
+
+```
+
+###(3). shapefiles for zip code bounds and NYC
+```{r, echo = F}
+# zip code shape file
+zipraw <- readOGR("data/zip_code/ZIP_CODE_040114.shp")
+nyc <- readOGR("data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10ea3ea45.shp")
+
+# change projection method to lon/lat
+zipbd <-  spTransform(zipraw, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+```
+
+
+
+
+
+###(4). Add zip code field to Stop & Frisk based on coordinates
+
+```{r}
+coord1 <- cbind(sf$lon, sf$lat)
+points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+reversezip <- over(points, zipbd)
+```
+There are 1147 missing values, to further inspect the patterns, the following plot is created
+It appears that all the missing values lie right on the boundaries. To fix this, we will find 8 surrounding points (all of whom of equal distance to the original point), from north going clockwise. We will then get the zipcode for all those 8 points and exclude NAs before taking a majority vote. Finally, we use the majority vote result to impute the NAs.
+
+**function for matching boundary points**
+```{r}
+# The distance from the original point is about 370 ft.
+zipcorrect <- function(lon, lat, shp) {
+  revzip <- rep(NA, length(lon))
+  for (i in 1:length(lon)) {
+    # starting from north, rotating clockwise for the 8 sample points
+    samp.lon <- c(lon[i], lon[i] + 0.001, lon[i] + 0.0014, lon[i] + 0.001, lon[i], lon[i] - 0.001, lon[i] - 0.0014, lon[i] - 0.001)
+    samp.lat <- c(lat[i] + 0.0014, lat[i] + 0.001, lat[i], lat[i] - 0.001, lat[i] - 0.0014, lat[i] - 0.001, lat[i], lat[i] + 0.001)
+    
+    samp.coord <- cbind(samp.lon, samp.lat)
+    
+    samp.points <- SpatialPoints(samp.coord, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
+    
+    samp.zip <- as.character(over(samp.points, shp)$ZIPCODE)
+    shortzip <- samp.zip[which(!is.na(samp.zip))]
+    
+    revzip[i] <- shortzip[which.max(tabulate(match(shortzip, unique(shortzip))))]
+  }
+  return(revzip)
+}
+```
+
+**Matching boundary points to zipcode**
+```{r}
+zipmiss <- sf[which(is.na(reversezip$ZIPCODE)), c(10, 9)]
+imputedzip <- zipcorrect(zipmiss$lon, zipmiss$lat, zipbd)
+```
+
+**Append zipcode and zipcode related fields to Stop & Frisk**
+```{r}
+sf$zip <- as.character(reversezip$ZIPCODE)
+sf$zip[which(is.na(sf$zip))] <- imputedzip
+```
+
+##C. group stop and frisk data based zipcode
+
+#### NEED TO ADD ALL THE ATTRIBUTES FROM ZIPCODE TO THE DATA
+```{r}
+jointable <- zipbd@data %>% dplyr::select(zip = ZIPCODE, po_name = PO_NAME, pop = POPULATION, area = AREA, county = COUNTY) %>% arrange(zip, desc(area))
+```
+
+Within the jointable, there is one duplicate record of zipcode 10047. There are other regions with multiple polygons associated with one zip code (10004 for instance). For these cases, we aggregate the land area and take any one of the population entry. It is cleaned in the following chunk.
+
+```{r}
+jtclean <- jointable[!duplicated(jointable), ]
+jtclean <- jtclean %>% group_by(zip) %>% summarize(po_name = first(po_name), pop = first(pop), area = sum(area), county = first(county)) %>% as.data.frame()
+
+jtclean$zip <- as.character(jtclean$zip)
+jtclean$county <- as.character(jtclean$county)
+
+jtclean$county[which(jtclean$county == "New York")] <- "Manhattan"
+jtclean$county[which(jtclean$county == "Richmond")] <- "Staten Island"
+jtclean$county[which(jtclean$county == "Kings")] <- "Brooklyn"
+colnames(jtclean)[5] <- "borough"
+```
+
+
+```{r}
+sf_large <- left_join(sf, jtclean)
+zip_large <- right_join(sf, jtclean)
+```
+
+## Group data on zipcode
+```{r}
+
+sf_rate <- sf_large %>% group_by(zip, year, month) %>% summarise(frisked = sum(frisked), stops = n(), po_name = first(po_name), pop = first(pop), area = first(area), borough = first(borough)) %>% as.data.frame()
+```
+
+## inspect difference between zipbd, housing value, and stop and frisk
+After subsetting zipbd with BLDGZIP == 0 (building zip), it matches perfectly with S&F
+
+However, we are still missing some values for housing price. 
+
+
+```{r}
+nbzipbd <- subset(zipbd, BLDGZIP == 0)
+# now stop and frisk matches the shapefile zips. 
+```
+
+
+Now we need to put the ZHVI data in a long format. For each zip, month, year, we want to have a specific ZHVI so we can join with the rates table.
+
+```{r}
+
+hvlong = melt(hv, id.vars = c("RegionName", "CountyName"), value.name = "zhvi")
+hvlong = hvlong[, - 2]  #don't need county name, drop it
+
+head(hvlong)
+hvlong = hvlong %>% mutate(variable = gsub("X","",variable)) %>% mutate(variable = gsub("\\.","-",variable)) %>% arrange(RegionName)
+hvlong = hvlong %>%  mutate(variable = as.Date(paste0(variable, "-01"))) %>% mutate(year = lubridate::year(variable), month = lubridate::month(variable)) %>% rename(zip = RegionName)
+
+
+
+
+
+hvlong = hvlong[,c(1,4,5,3)]
+hvlong$zip = as.character(hvlong$zip)
+
+hvlong
+
+
+sf_rate$year = as.double(sf_rate$year)
+sf_rate$month = as.double(sf_rate$month)
+
+sfhv = left_join(sf_rate, hvlong, by = c("zip","year", "month"))
+head(sfhv)
+
+```
+
+## Now narrowing in on housing value and zip code
+
+
+```{r}
+hvcraw <- read.csv("data/Zip_Zhvi_Condominum.csv", header = T)
+
+# select relevant date range for housing value, filter out other cities
+hvc <- hvcraw %>% dplyr::filter(City == "New York") %>% dplyr::select(RegionName, CountyName, X2005.12:X2014.01) %>% dplyr::arrange(RegionName)
+
+
+## same cleaning as before.......
+hvclong = melt(hvc, id.vars = c("RegionName", "CountyName"), value.name = "zhvi")
+hvclong = hvclong[, - 2]  #don't need county name, drop is as it is annoying me
+
+
+hvclong = hvclong %>% mutate(variable = gsub("X","",variable)) %>% mutate(variable = gsub("\\.","-",variable)) %>% arrange(RegionName)
+hvclong = hvclong %>%  mutate(variable = as.Date(paste0(variable, "-01"))) %>% mutate(year = lubridate::year(variable), month = lubridate::month(variable)) %>% rename(zip = RegionName, zhvic = zhvi)
+
+hvclong = hvclong[,c(1,4,5,3)]
+hvclong$zip = as.character(hvclong$zip)
+
+hvlong_year = hvlong %>% group_by(zip, year) %>% summarise(zhvi = mean(zhvi))
+hvclong_year = hvclong %>% group_by(zip, year) %>% summarise(zhvic = mean(zhvic))
+
+hvlong_year = full_join(hvlong_year, hvclong_year, by = c("zip", "year"))
+hvlong_year[is.na(hvlong_year$zhvi),]$zhvi = hvlong_year[is.na(hvlong_year$zhvi),]$zhvic
+hvlong_year = hvlong_year[,-4]
+```
+
+Summarize SF by year:
+
+```{r}
+sf_year = sf_rate %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough)) %>% mutate(frate = frisked/stops)%>% ungroup() %>% complete(nesting(zip,po_name,pop,area,borough),year, fill = list(frisked = 0, stops = 0, frate = 0))  %>%  as.data.frame() %>% filter(pop > 0)
+```
+
+Join by year:
+
+```{r}
+sfhv_full = full_join(sf_year, hvlong_year, by = c("zip","year"))
+```
+
+Remove Bronx and Central Park
+
+```{r}
+sfhv = sfhv_full %>% filter(borough != "Bronx", po_name != "Central Park") 
+```
+
+Checking:
+
+```{r}
+sfhv[sfhv$zip == 10044,] # zip code with some 0 stops
+paste("Number of missing zhvi: ", length(sfhv[is.na(sfhv$zhvi),]$zhvi))
+
+
+paste("Unique zips in original SF:", length(unique(sf_rate$zip)))
+#After removing Bronx and Central Park
+paste("Unique numer of zip: ", length(unique(sfhv$zip)))
+
+paste("Number of unique missing zhvi: ", length(unique(sfhv[is.na(sfhv$zhvi),]$zip)))
+
+
+plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhv[is.na(sfhv$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
+```
+
+
+## Areal Interpolation
+
+```{r}
+
+#subset the zipcodes file
+subzipbd = subset(nbzipbd, ZIPCODE %in% unique(sfhv$zip))
+
+# Let's start by doing it for one year
+sfhv_2013 = sfhv %>% filter(year == 2013)
+
+plot(subzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(subzipbd@data$ZIPCODE) %in% unique(sfhv_2013[is.na(sfhv_2013$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
+```
+
+# merging?
+
+```{r}
+subzipbd@data = left_join(subzipbd@data[,c(1,2)], sfhv_2013, by = c("ZIPCODE" = "zip"))
+```
+
+
+```{r}
+
+
+
+choropleth(subzipbd, subzipbd@data$zhvi)
+
+NYC.nb <- poly2nb(subzipbd)
+NYC.lw <- nb2listw(NYC.nb, zero.policy =  TRUE)
+geary.mc(subzipbd@data$zhvi, NYC.lw, nsim = 999, zero.policy = T)
+```
+
+```{r}
+library(sp)
+library(rgdal)
+install.packages("raster")
+
+r = raster(subzipbd)
+res(r) = 10  #NOT SURE IF THIS RIGHT 10 km if your CRS's units are in km
+g = as(r, "SpatialGrid")
+
+
+library(gstat)
+gs <- gstat(formula=zhvi~1, locations=subzipbd)
+v <- variogram(gs, width=20)
+head(v)
+
+variogram(subzipbd@data$zhvi ~ 1 , locations = subzipbd, na.rm = T)
+```
+
