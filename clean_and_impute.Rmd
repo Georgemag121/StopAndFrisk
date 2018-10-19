@@ -86,10 +86,6 @@ nyc <- readOGR("data/Borough_Boundaries/geo_export_5e515234-1937-40b5-b942-1ef10
 zipbd <-  spTransform(zipraw, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 ```
 
-
-
-
-
 ###(4). Add zip code field to Stop & Frisk based on coordinates
 
 ```{r}
@@ -97,6 +93,7 @@ coord1 <- cbind(sf$lon, sf$lat)
 points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 reversezip <- over(points, zipbd)
 ```
+
 There are 1147 missing values, to further inspect the patterns, the following plot is created
 It appears that all the missing values lie right on the boundaries. To fix this, we will find 8 surrounding points (all of whom of equal distance to the original point), from north going clockwise. We will then get the zipcode for all those 8 points and exclude NAs before taking a majority vote. Finally, we use the majority vote result to impute the NAs.
 
@@ -278,13 +275,11 @@ plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$
 ## Areal Interpolation
 
 ```{r}
-
 #subset the zipcodes file
 subzipbd = subset(nbzipbd, ZIPCODE %in% unique(sfhv$zip))
 
 # Let's start by doing it for one year
 sfhv_2013 = sfhv %>% filter(year == 2013)
-
 plot(subzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(subzipbd@data$ZIPCODE) %in% unique(sfhv_2013[is.na(sfhv_2013$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
 ```
 
@@ -296,31 +291,82 @@ subzipbd@data = left_join(subzipbd@data[,c(1,2)], sfhv_2013, by = c("ZIPCODE" = 
 
 
 ```{r}
-
-
-
-choropleth(subzipbd, subzipbd@data$zhvi)
+choropleth(subzipbd, subzipbd@data$stops)
 
 NYC.nb <- poly2nb(subzipbd)
 NYC.lw <- nb2listw(NYC.nb, zero.policy =  TRUE)
-geary.mc(subzipbd@data$zhvi, NYC.lw, nsim = 999, zero.policy = T)
+geary.mc(subzipbd@data$stops, NYC.lw, nsim = 999, zero.policy = TRUE)
 ```
+
 
 ```{r}
 library(sp)
 library(rgdal)
-install.packages("raster")
-
-r = raster(subzipbd)
-res(r) = 10  #NOT SURE IF THIS RIGHT 10 km if your CRS's units are in km
-g = as(r, "SpatialGrid")
-
-
+library(raster)
 library(gstat)
-gs <- gstat(formula=zhvi~1, locations=subzipbd)
-v <- variogram(gs, width=20)
-head(v)
 
-variogram(subzipbd@data$zhvi ~ 1 , locations = subzipbd, na.rm = T)
+
+
+misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
+shmiss = subset(subzipbd, ZIPCODE %in% misszips )
+
+shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+
+
+r <- raster(subzipbd)
+g <- as(r, 'SpatialGrid')
+
+
+vg = variogram( zhvi ~ 1, data = shnomiss)
+
+fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
+print(fit.wls)
+plot(vg)
+plot(vg, fit.wls,
+main = paste0("Best model = ", as.character(fit.wls$model[2])))
 ```
+
+
+
+```{r}
+k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
+kp <- predict(k, g)
+spplot(kp)
+```
+
+
+
+## Modeling
+
+Starting For 2013:
+
+
+```{r}
+#For 2013 data
+subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
+subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
+
+
+nomanh = subset(subzipbd, borough != "Manhattan" )
+
+
+plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
+legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
+
+
+
+
+
+
+shnomiss %>% arrange(shnomiss@data, shnomiss@data$zhvi)
+shnomiss@data[which(max(shnomiss@data$zhvi)),]
+
+mod1 = lm(stops ~ zhvi_z, data = nomanh@data)
+summary(mod1)
+
+
+
+
+```
+
 
