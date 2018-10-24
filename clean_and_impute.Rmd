@@ -23,14 +23,9 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     library(MASS)
     library(gstat) 
     library(sp)
-    
-    
     library(gganimate)
     library(rgeos)
     library(maptools)
-    
-    install.packages("transformr")
-    
     library(transformr)
     library(rmapshaper)
     library(animation)
@@ -47,21 +42,20 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
 
 ## Introduction
 
+Stop and Frisk in New York City was a program of the NYPD (New York Police Department) to control crime, which involved stopping, questioning and in some cases searching, citizens on the streets. The program was highly controversial, due to the high discretionary power given to the police in choosing who to stop and where. The data on the number and type of stops, which is now publicly available, has been used to understand whether the stops had an effect in reducing crimes, whether they were racially charged, or a number of other questions on the program. 
 
+In this project, we are interested in learning more about how wealth of a specific neighbourhood related, during these years, to the number of stops performed by the police, and whether the first is a good predictor of the second. We are curious in this question because it gives a starting point for investigation on whether the police discriminated neighborhoods in terms of their wealth. While true that poorer neighborhoods have a higher crime rate, it is also true that in NYC there is a large amount of commuting and flux of people that spends their day in different areas to where they usually live. Our hypothesis, therefore, is that if there is no discrimination in terms of neighbourhood wealth, the housing value at a specific zip code will only be weakly correlated with the number of stops performed there. The opposite will occur if poorer neighborhoods were targetted more heavily than needed, although the relationship would be then further examined to establish causality. 
 
+As a metric for 'neighbourhood wealth' we have decided to use housing value, which is representative of the residential value of a neighbourhood, rather than of the people who are in it during the day.  We look at yearly housing value by zip code, and number of stops and frisk rate over the zip code area, to understand how the relationship among these variable has changed. Specifically, we are interested in exploring areas that have seen a large change in housing values over the 7 years of the program, to see whether the number of frisks in this area have changed as well. 
 
-
-
-
+In the project, we start by exploring the data available to us, to identify patterns. We then attempt at fitting a model that takes in considerations the variables of interest, taking in consideration both the spatial and the temporal components of the problem at hand. 
 
 
 #1. Importing and Cleaning data
 
 In this project we used two sources of data. The first one is the data from NYC Open Data of Stops and Frisks throughout the years of 2006 and 2013. For the purpose of our project we aggregated this data at the zip-code and yearly level. The second source of data is the housing value index made available by the company Zillow at https://www.zillow.com/research/data/. We downloaded Zillow Housing Value Index Data at the grain of zip-code and month, for the years of interest. 
 
-
 ##A. Importing data
-
 
 (i). Housing value panel data
 
@@ -302,15 +296,15 @@ We note that there are several missing values that are localized in the Bronx an
 
 Note: a possible solution for future investigation is to use actual housing sales data which is made available at: https://www1.nyc.gov/site/finance/taxes/property-rolling-sales-data.page . However, this data is unaggregated data for each neighbourhood, which in practical terms meant to clean and aggreagate 40 data files. In the interest of time and brevity for the project, we decided against this solution. 
 
-Remove Bronx, Upper Manhattan and Central Park
+Remove Bronx, Upper Manhattan (Inwwod and Washington heights) and Central Park
 
 ```{r}
-sfhv = sfhv_full %>% filter(borough != "Bronx", po_name != "Central Park") 
+sfhv = sfhv_full %>% filter(borough != "Bronx", po_name != "Central Park", !(zip %in% c("10031", "10032", "10033", "10034", "10040")))
 ```
 
 Checking:
 
-```{r}
+```{r echo=FALSE}
 
 paste("Number of missing zhvi: ", length(sfhv[is.na(sfhv$zhvi),]$zhvi))
 paste("Unique zips in original SF:", length(unique(sf_rate$zip)))
@@ -318,10 +312,14 @@ paste("Unique zips in original SF:", length(unique(sf_rate$zip)))
 paste("Unique numer of zip: ", length(unique(sfhv$zip)))
 paste("Number of unique missing zhvi: ", length(unique(sfhv[is.na(sfhv$zhvi),]$zip)))
 
+```
 
+```{r}
 plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhv[is.na(sfhv$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
 ```
 
+
+*****STOPPED HERE! THIS HAS NOT NO INWOOD< NO CENTRAL PARK< NOW WASHINGTON HEIGHTS<NO BRONX!!!!*****
 
 ## Areal Interpolation
 
@@ -342,111 +340,7 @@ sfhv_df1 = left_join(distinct(subzipbd@data[,c(1,2)]), sfhv, by = c("ZIPCODE" = 
 ```
 
 
-```{r}
-choropleth(subzipbd, subzipbd@data$stops)
-
-NYC.nb <- poly2nb(subzipbd)
-NYC.lw <- nb2listw(NYC.nb, zero.policy =  TRUE)
-geary.mc(subzipbd@data$stops, NYC.lw, nsim = 999, zero.policy = TRUE)
-```
-
-
-```{r}
-library(sp)
-library(rgdal)
-library(raster)
-library(gstat)
-
-
-misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
-shmiss = subset(subzipbd, ZIPCODE %in% misszips )
-
-shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
-
-
-r <- raster(subzipbd)
-g <- as(r, 'SpatialGrid')
-
-
-vg = variogram( zhvi ~ 1, data = shnomiss)
-
-fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
-print(fit.wls)
-plot(vg)
-plot(vg, fit.wls,
-main = paste0("Best model = ", as.character(fit.wls$model[2])))
-
-misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
-shmiss = subset(subzipbd, ZIPCODE %in% misszips )
-shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
-r <- raster(subzipbd)
-g <- as(r, 'SpatialGrid')
-vg = variogram( zhvi ~ 1, data = shnomiss)
-fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
-print(fit.wls)
-plot(vg)
-plot(vg, fit.wls,
-main = paste0("Best model = ", as.character(fit.wls$model[2])))
-```
-
-
-
-```{r}
-k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
-kp <- predict(k, g)
-spplot(kp)
-```
-
-
-
-## Modeling
-
-Starting For 2013:
-
-
-```{r}
-#For 2013 data
-subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
-subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
-nomanh = subset(subzipbd, borough != "Manhattan" )
-plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
-legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
-
-
-mod1 = lm(stops ~ zhvi_z, data = nomanh@data)
-summary(mod1)
-```
-
-
-
-```{r}
-k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
-kp <- predict(k, g)
-spplot(kp)
-```
-
-
-
-## Modeling
-
-Starting For 2013:
-
-
-```{r}
-#For 2013 data
-subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
-subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
-
-
-nomanh = subset(subzipbd, borough != "Manhattan" )
-
-
-plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
-legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
-```
-
-
-## Viz
+## Exploratory Data Analysis
 
 
 ```{r}
@@ -561,3 +455,109 @@ ggplot(plotdf, aes(x = stops, y = zhvi_z, color = frate)) +
 ```
 
 
+
+```{r}
+choropleth(subzipbd, subzipbd@data$stops)
+
+NYC.nb <- poly2nb(subzipbd)
+NYC.lw <- nb2listw(NYC.nb, zero.policy =  TRUE)
+geary.mc(subzipbd@data$stops, NYC.lw, nsim = 999, zero.policy = TRUE)
+```
+
+
+```{r}
+library(sp)
+library(rgdal)
+library(raster)
+library(gstat)
+
+
+misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
+shmiss = subset(subzipbd, ZIPCODE %in% misszips )
+
+shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+
+
+r <- raster(subzipbd)
+g <- as(r, 'SpatialGrid')
+
+
+vg = variogram( zhvi ~ 1, data = shnomiss)
+
+fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
+print(fit.wls)
+plot(vg)
+plot(vg, fit.wls,
+main = paste0("Best model = ", as.character(fit.wls$model[2])))
+
+misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
+shmiss = subset(subzipbd, ZIPCODE %in% misszips )
+shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+r <- raster(subzipbd)
+g <- as(r, 'SpatialGrid')
+vg = variogram( zhvi ~ 1, data = shnomiss)
+fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
+print(fit.wls)
+plot(vg)
+plot(vg, fit.wls,
+main = paste0("Best model = ", as.character(fit.wls$model[2])))
+```
+
+```{r}
+k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
+kp <- predict(k, g)
+spplot(kp)
+```
+
+
+## Modeling
+
+Starting For 2013:
+
+
+```{r}
+#For 2013 data
+subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
+subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
+nomanh = subset(subzipbd, borough != "Manhattan" )
+plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
+legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
+
+
+mod1 = lm(stops ~ zhvi_z, data = nomanh@data)
+summary(mod1)
+```
+
+
+
+```{r}
+k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
+kp <- predict(k, g)
+spplot(kp)
+```
+
+
+
+
+
+## Modeling
+
+Starting For 2013:
+
+
+```{r}
+#For 2013 data
+subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
+subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
+
+
+nomanh = subset(subzipbd, borough != "Manhattan" )
+
+
+plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
+legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
+```
+
+
+
+## Conclusions
