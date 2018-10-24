@@ -23,8 +23,14 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     library(MASS)
     library(gstat) 
     library(sp)
-    library(spdep)
-    library(dplyr)
+    library(gganimate)
+    library(rgeos)
+    library(maptools)
+    library(transformr)
+    library(rmapshaper)
+    library(animation)
+    library(magick)
+    library(GISTools)
     
     #snippet to override r-chunk fonts.
     def.chunk.hook  <- knitr::knit_hooks$get("chunk")
@@ -92,6 +98,9 @@ zipbd <-  spTransform(zipraw, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 coord1 <- cbind(sf$lon, sf$lat)
 points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 reversezip <- over(points, zipbd)
+
+plot(zipbd, border = "green", lwd = 0.2)
+points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 2.5, col = "red")
 ```
 
 There are 1147 missing values, to further inspect the patterns, the following plot is created
@@ -164,6 +173,8 @@ zip_large <- right_join(sf, jtclean)
 ```{r}
 
 sf_rate <- sf_large %>% group_by(zip, year, month) %>% summarise(frisked = sum(frisked), stops = n(), po_name = first(po_name), pop = first(pop), area = first(area), borough = first(borough)) %>% as.data.frame()
+
+
 ```
 
 ## inspect difference between zipbd, housing value, and stop and frisk
@@ -239,7 +250,9 @@ hvlong_year = hvlong_year[,-4]
 Summarize SF by year:
 
 ```{r}
-sf_year = sf_rate %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough)) %>% mutate(frate = frisked/stops)%>% ungroup() %>% complete(nesting(zip,po_name,pop,area,borough),year, fill = list(frisked = 0, stops = 0, frate = 0))  %>%  as.data.frame() %>% filter(pop > 0)
+sf_year_full <- sf_rate %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough)) %>% mutate(frate = frisked/stops)%>% ungroup() %>% complete(nesting(zip, po_name, pop, area, borough),year, fill = list(frisked = 0, stops = 0, frate = 0))  %>%  as.data.frame()
+
+sf_year = sf_year_full %>% filter(pop > 0)
 ```
 
 Join by year:
@@ -287,6 +300,8 @@ plot(subzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(subzipbd@d
 
 ```{r}
 subzipbd@data = left_join(subzipbd@data[,c(1,2)], sfhv_2013, by = c("ZIPCODE" = "zip"))
+
+sfhv_df1 = left_join(distinct(subzipbd@data[,c(1,2)]), sfhv, by = c("ZIPCODE" = "zip"))
 ```
 
 
@@ -306,7 +321,6 @@ library(raster)
 library(gstat)
 
 
-
 misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
 shmiss = subset(subzipbd, ZIPCODE %in% misszips )
 
@@ -324,6 +338,46 @@ print(fit.wls)
 plot(vg)
 plot(vg, fit.wls,
 main = paste0("Best model = ", as.character(fit.wls$model[2])))
+
+misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
+shmiss = subset(subzipbd, ZIPCODE %in% misszips )
+shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+r <- raster(subzipbd)
+g <- as(r, 'SpatialGrid')
+vg = variogram( zhvi ~ 1, data = shnomiss)
+fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
+print(fit.wls)
+plot(vg)
+plot(vg, fit.wls,
+main = paste0("Best model = ", as.character(fit.wls$model[2])))
+```
+
+
+
+```{r}
+k <- gstat(formula=shnomiss$zhvi~1, locations=shnomiss, model=fit.wls)
+kp <- predict(k, g)
+spplot(kp)
+```
+
+
+
+## Modeling
+
+Starting For 2013:
+
+
+```{r}
+#For 2013 data
+subzipbd@data$zhvi_z = scale(subzipbd@data$zhvi)
+subzipbd@data$zhvi_invlog = log(1/(abs(subzipbd@data$zhvi_z)))
+nomanh = subset(subzipbd, borough != "Manhattan" )
+plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
+legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
+
+
+mod1 = lm(stops ~ zhvi_z, data = nomanh@data)
+summary(mod1)
 ```
 
 
@@ -352,10 +406,53 @@ nomanh = subset(subzipbd, borough != "Manhattan" )
 
 plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI", xlab = "frisk rate", col = factor(nomanh@data$borough))
 legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
+```
+
+
+## Viz
+
+
+```{r}
 
 
 
+zipbd_df <- fortify(nbzipbd, region = "ZIPCODE")
+zipbd_df <- merge(zipbd_df, sf_year_full, by.x = "id", by.y = "zip")
 
+#p <- ggplot() + geom_polygon(data = zipbd_df, aes(long, lat, group = group, fill = frisked), color = alpha("black", 0.5), size = 0.2) + scale_colour_gradient(aes(frame = year), low = "white", high = "red") + theme(legend.position = "none") + coord_map("mercator")
+
+sf_cut <- zipbd_df %>% dplyr::select(id, year, frisked, stops, frate) %>% distinct() %>% group_by(year) %>% mutate(stopxtrm = stops > quantile(stops, seq(0, 1, 0.05))[20], ratextrm = frate > quantile(frate, seq(0, 1, 0.05))[20]) %>% ungroup()
+
+# centroid for labels
+cntr_df <- data.frame(unname(cbind(as.character(nbzipbd@data$ZIPCODE), gCentroid(nbzipbd, byid = TRUE)@coords)))
+colnames(cntr_df) <- c("zip", "lon", "lat")
+
+cntr_df$zip <- as.character(cntr_df$zip)
+cntr_df$lon <- as.numeric(as.character(cntr_df$lon))
+cntr_df$lat <- as.numeric(as.character(cntr_df$lat))
+
+zipcntr_df <- cntr_df %>% group_by(zip) %>% summarise(lon = mean(lon), lat = mean(lat)) %>% expand(nesting(zip, lon, lat), year = 2006:2013)
+
+labels_df <- left_join(zipcntr_df, sf_cut, by = c("zip" = "id", "year" = "year"))
+
+
+theme_opts <- list(theme(panel.grid.minor = element_blank(),
+                         panel.grid.major = element_blank(),
+                         panel.background = element_blank(),
+                         plot.background = element_blank(),
+                         panel.border = element_blank(),
+                         axis.line = element_blank(),
+                         axis.text.x = element_blank(),
+                         axis.text.y = element_blank(),
+                         axis.ticks = element_blank(),
+                         axis.title.x = element_blank(),
+                         axis.title.y = element_blank(),
+                         legend.position="right",
+                         plot.title = element_text(size = 20)))
+
+#-74.15, 40.8
+
+zipbd_df %>% filter(year == 2006) %>% ggplot(aes(long, lat, group = group, fill = stops), color = alpha("white", 0.5), size = 0.2) + theme_opts + geom_polygon() + scale_fill_viridis_c(begin = 0.9, end = 0.1, direction = 1, alpha = 0.8) + coord_map("mercator") + geom_text(data = labels_df %>% filter(year == 2006), aes(lon, lat, group = zip, label = ifelse(stopxtrm, zip, '')), size = 3) + annotate("text", size = 10, x = -74.15, y = 40.8, label = year[1])
 
 
 shnomiss %>% arrange(shnomiss@data, shnomiss@data$zhvi)
@@ -364,9 +461,66 @@ shnomiss@data[which(max(shnomiss@data$zhvi)),]
 mod1 = lm(stops ~ zhvi_z, data = nomanh@data)
 summary(mod1)
 
+datalist <- split(zipbd_df, zipbd_df$year)
+
+img1 <- image_graph(1000, 750, res = 96)
+out1 <- lapply(datalist, function(dat){
+  p <- dat %>% ggplot(aes(long, lat, group = group, fill = sqrt(stops)), color = alpha("white", 0.5), size = 0.2) + theme_opts + geom_polygon() + scale_fill_viridis_c(begin = 1, end = 0.4, direction = 1, alpha = 0.8, guide = guide_colorbar(label = F, ticks = F, title = "Stops")) + coord_map("mercator")
+  
+  p <- p + geom_text(data = labels_df %>% filter(year == dat$year[1]), aes(lon, lat, group = zip, label = ifelse(stopxtrm, zip, '')), size = 2.5)
+    
+  print(p + annotate("text", size = 10, x = -74.15, y = 40.8, label = dat$year[1]))
+})
+dev.off()
+animation1 <- image_animate(img1, fps = 1)
+print(animation1)
+
+image_write(animation1, "stop2.gif")
+
+img2 <- image_graph(1000, 750, res = 96)
+out2 <- lapply(datalist, function(dat){
+  p <- dat %>% ggplot(aes(long, lat, group = group, fill = frate), color = alpha("white", 0.5), size = 0.2) + theme_opts + geom_polygon() + scale_fill_distiller(palette = "YlOrRd", direction = 1, guide = guide_colorbar(label = F, ticks = F, title = "Frisk Rate")) + coord_map("mercator")
+  
+  p <- p + geom_text(data = labels_df %>% filter(year == dat$year[1]), aes(lon, lat, group = zip, label = ifelse(ratextrm, zip, '')), col = "black", size = 3)
+    
+  print(p + annotate("text", size = 10, x = -74.15, y = 40.8, label = dat$year[1]))
+})
+dev.off()
+animation2 <- image_animate(img2, fps = 1)
+print(animation2)
+
+image_write(animation2, "frate1.gif")
+```
+
+```{r}
+####
+p <- ggplot(zipbd_df, aes(long, lat, group = group, fill = frisked), color = alpha("white", 0.5), size = 0.2) + theme_opts + geom_polygon() + scale_fill_distiller(palette = "Greens", direction = 1) + coord_map("mercator")
+
+ggplot(data, aes(long, lat, group = group, fill = frisked), color = alpha("white", 0.5), size = 0.2) + theme_opts + geom_polygon() + scale_fill_distiller(direction = 1) + coord_map("mercator") + labs(title = data$year)
+
+ggplot(data, aes(long, lat, group = group, fill = frisked, color = alpha("white", 0.5), size = 0.2)) + theme_opts + geom_polygon() + scale_fill_manual(palette = "Greens") + coord_map("mercator") + labs(title = data$year)
+####
+#full_sfhv
+sfhv_df1$zhvi_z = as.numeric(scale(sfhv_df1$zhvi))
+sfhv_df1$zhvi_invlog = log(1/(abs(sfhv_df1$zhvi_z)))
+plotdf <- sfhv_df1[which(!is.na(sfhv_df1$zhvi)), ]
+
+theme_opts_scatter <- list(theme(panel.grid.minor = element_blank(),
+                                 plot.background = element_blank()))
+
+ggplot(plotdf, aes(x = stops, y = zhvi_z, color = frate)) +
+  geom_point(alpha = 0.7, size = 6) +
+  scale_color_distiller(palette = "YlOrRd", direction = 1, guide = guide_colorbar(label = F, ticks = F, title = "Frisk Rate")) +
+  #scale_size(range = c(2, 10)) +
+  scale_x_sqrt() +
+  facet_wrap(~ borough) +
+  theme_opts_scatter +
+  labs(title = 'Year: {floor(frame_time)}', x = 'Logarithm of Stops', y = 'Housing Value') +
+  transition_time(year) +
+  ease_aes('linear')
 
 
-
+#anim_save()
 ```
 
 
