@@ -15,22 +15,21 @@ knitr::opts_chunk$set(echo = TRUE, tidy = TRUE)
     library(formatR)
     library(sm)
     library(tidyverse)
-    #library(revgeo)
     library(ggmap)
     library(sp)
     library(reshape2)
     library(lubridate)
     library(MASS)
     library(gstat) 
-    library(sp)
     library(gganimate)
     library(rgeos)
     library(maptools)
-    library(transformr)
     library(rmapshaper)
     library(animation)
     library(magick)
     library(GISTools)
+    library(knitr)
+    library(raster)
     
     #snippet to override r-chunk fonts.
     def.chunk.hook  <- knitr::knit_hooks$get("chunk")
@@ -117,6 +116,8 @@ We check over which zip-code polygon each of the stops is. We then examine which
 coord1 <- cbind(sf$lon, sf$lat)
 points <- SpatialPoints(coord1, CRS("+proj=longlat +ellps=WGS84 +no_defs"))
 reversezip <- over(points, zipbd)
+# over function checks which spatial polygon a list of points fall into
+
 
 plot(zipbd, border = "black", lwd = 0.2)
 points(sf$lon[which(is.na(reversezip$ZIPCODE))], sf$lat[which(is.na(reversezip$ZIPCODE))], pch = ".", cex = 2.5, col = "red", main = "Missing 'matches'")
@@ -198,8 +199,6 @@ zip_large <- right_join(sf, jtclean)
 ```{r}
 
 sf_rate <- sf_large %>% group_by(zip, year, month) %>% summarise(frisked = sum(frisked), stops = n(), po_name = first(po_name), pop = first(pop), area = first(area), borough = first(borough)) %>% as.data.frame()
-
-
 ```
 
 ## inspect difference between zipbd, housing value, and stop and frisk
@@ -216,7 +215,7 @@ nbzipbd <- subset(zipbd, BLDGZIP == 0)
 # now stop and frisk matches the shapefile zips. 
 ```
 
-After subsetting this way, there are the same number of zipcodes in the shape file as there are in the Stop and Frisk file. 
+After subsetting this way, there are the same number of zipcodes (193) in the shape file as there are in the Stop and Frisk file. 
 
 We now want to joing the ZHVI (Zillow Housing Value Index) data with the Stop and Frisk file. To do so, we need to put the ZHVI data in a long format. For each zip, month, year, we want to have a specific ZHVI so we can join with the rates table.
 
@@ -274,7 +273,7 @@ hvlong_year = hvlong_year[,-4]
 Summarize SF by year:
 
 ```{r}
-sf_year_full <- sf_rate %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough)) %>% mutate(frate = frisked/stops)%>% ungroup() %>% complete(nesting(zip, po_name, pop, area, borough),year, fill = list(frisked = 0, stops = 0, frate = 0))  %>%  as.data.frame()
+sf_year_full <- sf_rate %>% group_by(zip, year) %>% summarise(frisked = sum(frisked), stops = sum(stops), po_name = first(po_name), pop = mean(pop), area = first(area), borough = first(borough)) %>% mutate(frate = frisked/stops) %>% ungroup() %>% complete(nesting(zip, po_name, pop, area, borough),year, fill = list(frisked = 0, stops = 0, frate = 0))  %>%  as.data.frame()
 
 
 # Remove the ones with no population
@@ -296,27 +295,80 @@ We note that there are several missing values that are localized in the Bronx an
 
 Note: a possible solution for future investigation is to use actual housing sales data which is made available at: https://www1.nyc.gov/site/finance/taxes/property-rolling-sales-data.page . However, this data is unaggregated data for each neighbourhood, which in practical terms meant to clean and aggreagate 40 data files. In the interest of time and brevity for the project, we decided against this solution. 
 
-Remove Bronx, Upper Manhattan (Inwwod and Washington heights) and Central Park
+Remove Bronx, Upper Manhattan (Inwwod and Washington heights), Central Park, LaGuardia and JFK
 
 ```{r}
-sfhv = sfhv_full %>% filter(borough != "Bronx", po_name != "Central Park", !(zip %in% c("10031", "10032", "10033", "10034", "10040")))
+# Remove zipcodes we cannot impute (either no houses or no neighbors), add standardized zhvi by year
+sfhv = sfhv_full %>% filter(borough != "Bronx", po_name != "Central Park", !(zip %in% c("10031", "10032", "10033", "10034", "10040", "11430", "11371"))) %>% group_by(year) %>% mutate(zhvi_z = as.numeric(scale(zhvi))) %>% ungroup()
 ```
 
 Checking:
 
 ```{r echo=FALSE}
-
 paste("Number of missing zhvi: ", length(sfhv[is.na(sfhv$zhvi),]$zhvi))
 paste("Unique zips in original SF:", length(unique(sf_rate$zip)))
 #After removing Bronx and Central Park
-paste("Unique numer of zip: ", length(unique(sfhv$zip)))
+paste("Unique number of zip: ", length(unique(sfhv$zip)))
 paste("Number of unique missing zhvi: ", length(unique(sfhv[is.na(sfhv$zhvi),]$zip)))
 
 ```
 
-```{r}
-plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$ZIPCODE) %in% unique(sfhv[is.na(sfhv$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
+## Areal Interpolation
+
+To impute missing zhvi values, we first choose the year 2013 and look at the choropleth and variogram. Below we subset for the year 2013 and display the zipcodes whose zhvi need to be imputed.
+
+```{r, warning = F}
+# Subsetting 2013 zhvi, 154 zips
+sfhv_2013 = sfhv %>% filter(year == 2013)
+
+# subset shape file to match 2013 file , 193 -> 154 zips
+subzipbd = subset(nbzipbd, ZIPCODE %in% unique(sfhv_2013$zip))
+
+# Merge the two datasets above
+subzipbd@data = left_join(subzipbd@data[, c(1, 2)], sfhv_2013, by = c("ZIPCODE" = "zip"))
+
+plot(subzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(subzipbd@data$ZIPCODE) %in% unique(sfhv_2013[is.na(sfhv_2013$zhvi),]$zip), "indianred", "steelblue"), main = "ZIP Codes with NA ZHVI, to impute")
 ```
+```{r}
+# 15 missing zips to impute
+misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
+
+# shape file without zipcodes with missing zhvi, 139 zips
+shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+
+choropleth(shnomiss, shnomiss@data$zhvi_z)
+
+NYC.nb <- poly2nb(shnomiss)
+NYC.lw <- nb2listw(NYC.nb, zero.policy =  TRUE)
+geary.mc(shnomiss@data$zhvi_z, NYC.lw, nsim = 999, zero.policy = TRUE)
+```
+With a p-value of 0.001, we reject the null hypothesis of complete spatial randomness and conclude that there is spatial autocorrelation. Then we take a look at the variogram to examine the variance.
+```{r, warning = F}
+
+
+# Create variogram
+vg = variogram(zhvi_z ~ 1, data = shnomiss)
+
+fit.wls = fit.variogram(vg, vgm(c("Lin", "Exp", "Sph", "Gau")))
+print(fit.wls)
+plot(vg, fit.wls,
+main = paste0("Best model = ", as.character(fit.wls$model[2])))
+```
+Run on standardized zhvi, the variogram shows that the linear fit is the best model. For the this model, there is variance at infinitesimally distance (nugget) and as distance go up, the semivariance increases linearly. Even though the slope is not steep, the graph still shows that the further a region is, the bigger the semivariance. 
+
+Combining both choropleth (Geary's test) and the variogram, we think it's reasonable to impute the housing value based on the mean of all neighbors.
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
 
 
 *****STOPPED HERE! THIS HAS NOT NO INWOOD< NO CENTRAL PARK< NOW WASHINGTON HEIGHTS<NO BRONX!!!!*****
@@ -324,6 +376,8 @@ plot(nbzipbd, border = "white", lwd = 0.2, col = ifelse(as.character(zipbd@data$
 ## Areal Interpolation
 
 ```{r}
+
+
 #subset the zipcodes file
 subzipbd = subset(nbzipbd, ZIPCODE %in% unique(sfhv$zip))
 
@@ -431,6 +485,13 @@ ggplot(data, aes(long, lat, group = group, fill = frisked), color = alpha("white
 
 ggplot(data, aes(long, lat, group = group, fill = frisked, color = alpha("white", 0.5), size = 0.2)) + theme_opts + geom_polygon() + scale_fill_manual(palette = "Greens") + coord_map("mercator") + labs(title = data$year)
 ####
+
+######
+#sfhv_df1 = left_join(distinct(subzipbd@data[, c(1, 2)]), sfhv, by = c("ZIPCODE" = "zip"))
+#sfhv_df1$zhvi_z = as.numeric(scale(sfhv_df1$zhvi))
+#sfhv_df1$zhvi_invlog = log(1/(abs(sfhv_df1$zhvi_z)))
+######
+
 #full_sfhv
 sfhv_df1$zhvi_z = as.numeric(scale(sfhv_df1$zhvi))
 sfhv_df1$zhvi_invlog = log(1/(abs(sfhv_df1$zhvi_z)))
@@ -493,6 +554,7 @@ main = paste0("Best model = ", as.character(fit.wls$model[2])))
 misszips = unique(subzipbd@data[is.na(subzipbd@data$zhvi),]$ZIPCODE)
 shmiss = subset(subzipbd, ZIPCODE %in% misszips )
 shnomiss = subset(subzipbd, !(ZIPCODE %in% misszips))
+
 r <- raster(subzipbd)
 g <- as(r, 'SpatialGrid')
 vg = variogram( zhvi ~ 1, data = shnomiss)
@@ -558,6 +620,10 @@ plot(nomanh@data$frate, nomanh@data$zhvi_z,  pch = 16, ylab = "Z scores for ZHVI
 legend("topright", legend = unique(factor(nomanh@data$borough)), col = unique(factor(nomanh@data$borough)), pch = 19)
 ```
 
+Other codes
+```{r}
 
+
+```
 
 ## Conclusions
